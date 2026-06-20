@@ -1,284 +1,340 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, LineChart, Line } from 'recharts';
-import { Shield, Users, BarChart3, QrCode, Download, RefreshCw, CheckCircle2, AlertCircle, LogOut } from 'lucide-react';
-import * as XLSX from 'xlsx';
+import React, { useState, useEffect } from 'react';
 
-// Google Sheets API URL (Vercel yoki local muhitdan olinadi)
-const GOOGLE_SHEETS_URL = import.meta.env.VITE_GOOGLE_SHEETS_URL || '';
+// Google Sheets Apps Script URL manzili
+const GOOGLE_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbwZPl6bzpblC1FI4wUe-80yY6a8AI74Slox1kjAzgg26lfTIr1ywqvJ-rtxhQtOXPkZMw/exec';
 
-interface ScannedItem {
+interface ScanRecord {
   id: string;
   barcode: string;
   category: string;
-  scannedBy: string;
+  points: number;
+  team: string;
+  role: string;
   timestamp: string;
 }
 
 export default function App() {
-  const [isAdmin, setIsAdmin] = useState(false);
-  const [password, setPassword] = useState('');
-  const [selectedTeam, setSelectedTeam] = useState('');
-  const [barcode, setBarcode] = useState('');
-  const [scannedItems, setScannedItems] = useState<ScannedItem[]>([]);
-  const [status, setStatus] = useState<{ type: 'success' | 'error' | 'loading' | null; message: string }>({ type: null, message: '' });
-  const [syncing, setSyncing] = useState(false);
+  // Sahifalar boshqaruvi: 'login' | 'user_panel' | 'admin_panel'
+  const [view, setView] = useState<'login' | 'user_panel' | 'admin_panel'>('login');
+  const [role, setRole] = useState<'Xodim' | 'Admin'>('Xodim');
+  const [selectedTeam, setSelectedTeam] = useState('Komanda 1');
   
-  const barcodeInputRef = useRef<HTMLInputElement>(null);
+  // Ma'lumotlar va formalar uchun
+  const [barcode, setBarcode] = useState('');
+  const [selectedCategory, setSelectedCategory] = useState('Oyoq kiyim');
+  const [records, setRecords] = useState<ScanRecord[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [adminTab, setAdminTab] = useState<'home' | 'teams' | 'categories' | 'logs' | 'export'>('home');
 
-  // 1. Bazadan (Google Sheets) ma'lumotlarni yuklab olish
-  const fetchScores = async () => {
-    if (!GOOGLE_SHEETS_URL) return;
+  // Kategoriyalar va ularning ballari
+  const categories = [
+    { name: 'Oyoq kiyim', points: 3, icon: '👟' },
+    { name: 'Kiyim-kechak', points: 2, icon: '👕' },
+    { name: 'Aksessuarlar', points: 1, icon: '👜' },
+    { name: 'Elektronika', points: 4, icon: '💻' },
+    { name: 'Oziq-ovqat', points: 2, icon: '🍱' },
+    { name: 'Kosmetika', points: 2, icon: '💄' },
+    { name: 'Uy jihozlari', points: 3, icon: '🏠' },
+    { name: 'Boshqa', points: 1, icon: '📦' },
+  ];
+
+  // Jamoalar ro'yxati
+  const teams = Array.from({ length: 10 }, (_, i) => `Komanda ${i + 1}`);
+
+  // Ma'lumotlarni yuklab olish
+  const fetchRecords = async () => {
     try {
-      const response = await fetch(GOOGLE_SHEETS_URL);
-      if (response.ok) {
-        const data = await response.json();
-        setScannedItems(data);
+      const res = await fetch(GOOGLE_SCRIPT_URL);
+      if (res.ok) {
+        const data = await res.json();
+        setRecords(data);
       }
-    } catch (error) {
-      console.error("Ma'lumotlarni yuklashda xatolik:", error);
+    } catch (e) {
+      console.error("Xatolik:", e);
     }
   };
 
   useEffect(() => {
-    fetchScores();
-    const interval = setInterval(fetchScores, 10000); // Har 10 soniyada yangilab turadi
+    fetchRecords();
+    const interval = setInterval(fetchRecords, 5000);
     return () => clearInterval(interval);
   }, []);
 
-  useEffect(() => {
-    if (selectedTeam && barcodeInputRef.current) {
-      barcodeInputRef.current.focus();
+  // Tizimga kirish
+  const handleLogin = () => {
+    if (role === 'Admin') {
+      setView('admin_panel');
+    } else {
+      setView('user_panel');
     }
-  }, [selectedTeam]);
+  };
 
-  // 2. Shtrix-kodni sknerlaganda bazaga yuborish
-  const handleBarcodeSubmit = async (e: React.FormEvent) => {
+  // Shtrix-kod kiritish va saqlash
+  const handleScanSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!barcode.trim() || !selectedTeam) return;
+    if (!barcode.trim()) return;
 
-    const cleanBarcode = barcode.trim();
-    
-    // Kategoriyani aniqlash (Shtrix-kod uzunligi yoki prefiksiga qarab - o'zingizga moslang)
-    let category = "Boshqa mahsulot";
-    if (cleanBarcode.startsWith('A')) category = "A-Kategoriya";
-    else if (cleanBarcode.startsWith('B')) category = "B-Kategoriya";
+    setLoading(true);
+    const catObj = categories.find(c => c.name === selectedCategory);
+    const points = catObj ? catObj.points : 1;
 
-    const newItem: ScannedItem = {
-      id: Math.random().toString(36).substring(2, 9),
-      barcode: cleanBarcode,
-      category: category,
-      scannedBy: selectedTeam,
-      timestamp: new Date().toLocaleString('uz-UZ'),
+    const newScan = {
+      id: Date.now().toString(),
+      barcode: barcode,
+      category: selectedCategory,
+      points: points,
+      team: selectedTeam,
+      role: role,
+      timestamp: new Date().toLocaleString('ru-RU')
     };
 
-    setStatus({ type: 'loading', message: 'Saqlanmoqda...' });
-
-    // Agar Google Sheets URL bo'lsa, onlayn yuboradi
-    if (GOOGLE_SHEETS_URL) {
-      try {
-        const response = await fetch(GOOGLE_SHEETS_URL, {
-          method: 'POST',
-          mode: 'no-cors', // Google Apps Script uchun muhim
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(newItem)
-        });
-        
-        // no-cors rejimida status har doim 0 bo'ladi, muvaffaqiyatli deb hisoblaymiz
-        setScannedItems(prev => [newItem, ...prev]);
-        setStatus({ type: 'success', message: `Shtrix-kod muvaffaqiyatli urildi: ${cleanBarcode}` });
-        setBarcode('');
-        fetchScores(); // Yangi ma'lumotlarni qayta o'qish
-      } catch (error) {
-        setStatus({ type: 'error', message: 'Internet xatoligi! Baza bilan aloqa yo\'q.' });
-      }
-    } else {
-      // Agar ssilka topilmasa, vaqtincha ekranda ko'rsatib turadi
-      setScannedItems(prev => [newItem, ...prev]);
-      setStatus({ type: 'success', message: 'Lokal saqlandi (Baza ulanmagan!)' });
+    try {
+      await fetch(GOOGLE_SCRIPT_URL, {
+        method: 'POST',
+        mode: 'no-cors',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(newScan)
+      });
       setBarcode('');
+      fetchRecords();
+    } catch (err) {
+      alert("Xatolik yuz berdi!");
+    } finally {
+      setLoading(false);
     }
-
-    if (barcodeInputRef.current) barcodeInputRef.current.focus();
   };
 
-  // Excel yuklab olish funksiyasi
-  const downloadExcel = () => {
-    const worksheet = XLSX.utils.json_to_sheet(scannedItems);
-    const workbook = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(workbook, worksheet, "Markirovka_Hisobot");
-    XLSX.writeFile(workbook, `Markirovka_Hisobot_${new Date().toLocaleDateString()}.xlsx`);
+  // Statistika hisoblash (Faqat bugungi kun uchun)
+  const todayStr = new Date().toLocaleDateString('ru-RU');
+  const todayRecords = records.filter(r => r.timestamp.includes(todayStr));
+  
+  // Tanlangan komandaning bugungi statistikasi
+  const teamTodayRecords = todayRecords.filter(r => r.team === selectedTeam);
+  const teamTodayCount = teamTodayRecords.length;
+  const teamTodayPoints = teamTodayRecords.reduce((sum, r) => sum + Number(r.points), 0);
+  const teamKPI = Math.min(Math.round((teamTodayCount / 200) * 100), 100);
+
+  // Dizayn Ranglari (Sizning to'q ko'k rangli fovingiz)
+  const styles = {
+    bg: '#0d1117',
+    card: '#161b22',
+    border: '#30363d',
+    text: '#c9d1d9',
+    accent: '#58a6ff',
+    button: '#1f6feb',
+    success: '#238636'
   };
 
-  // Statistika hisob-kitoblari
-  const teamStats = scannedItems.reduce((acc: any, item) => {
-    acc[item.scannedBy] = (acc[item.scannedBy] || 0) + 1;
-    return acc;
-  }, {});
-
-  const chartData = Object.keys(teamStats).map(key => ({
-    name: key,
-    sknerlangan: teamStats[key]
-  }));
-
-  return (
-    <div className="min-h-screen bg-slate-900 text-slate-100 font-sans p-4 md:p-8">
-      {/* HEADER */}
-      <header className="max-w-6xl mx-auto flex justify-between items-center border-b border-slate-800 pb-6 mb-8">
-        <div className="flex items-center gap-3">
-          <QrCode className="w-8 h-8 text-blue-500" />
-          <h1 className="text-xl md:text-2xl font-bold tracking-tight">Markirovka Nazorat Tizimi</h1>
-        </div>
-        <button 
-          onClick={() => setIsAdmin(!isAdmin)}
-          className="flex items-center gap-2 bg-slate-800 hover:bg-slate-700 text-sm font-medium px-4 py-2 rounded-lg transition"
-        >
-          <Shield className="w-4 h-4 text-blue-400" />
-          {isAdmin ? "Skaner Bo'limi" : "Admin Panel"}
-        </button>
-      </header>
-
-      <main className="max-w-6xl mx-auto">
-        {/* SKANER REJIMi */}
-        {!isAdmin ? (
-          <div className="grid md:grid-cols-3 gap-8">
-            <div className="bg-slate-800 p-6 rounded-2xl border border-slate-700 shadow-xl">
-              <h2 className="text-lg font-semibold mb-4 flex items-center gap-2 text-blue-400">
-                <Users className="w-5 h-5" /> 1. Komandani tanlang
-              </h2>
-              <div className="space-y-2">
-                {['Komanda A', 'Komanda B', 'Komanda C', 'Supervayzer'].map((team) => (
-                  <button
-                    key={team}
-                    onClick={() => setSelectedTeam(team)}
-                    className={`w-full text-left p-4 rounded-xl font-medium border transition ${
-                      selectedTeam === team 
-                        ? 'bg-blue-600 border-blue-500 text-white shadow-lg shadow-blue-900/30' 
-                        : 'bg-slate-800/50 border-slate-750 hover:bg-slate-750 text-slate-300'
-                    }`}
-                  >
-                    {team}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            <div className="md:col-span-2 bg-slate-800 p-6 rounded-2xl border border-slate-700 shadow-xl flex flex-col justify-between">
-              <div>
-                <h2 className="text-lg font-semibold mb-4 text-blue-400">2. Shtrix-kodni sknerlang</h2>
-                <form onSubmit={handleBarcodeSubmit} className="space-y-4">
-                  <input
-                    ref={barcodeInputRef}
-                    type="text"
-                    disabled={!selectedTeam}
-                    value={barcode}
-                    onChange={(e) => setBarcode(e.target.value)}
-                    placeholder={selectedTeam ? "Skanerlashni boshlang..." : "Avval komandani tanlang"}
-                    className="w-full bg-slate-900 border border-slate-700 rounded-xl p-4 text-xl tracking-wider text-center focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50 transition"
-                  />
-                </form>
-
-                {status.type && (
-                  <div className={`mt-4 p-4 rounded-xl flex items-center gap-3 border ${
-                    status.type === 'success' ? 'bg-emerald-950/40 border-emerald-800 text-emerald-400' :
-                    status.type === 'error' ? 'bg-rose-950/40 border-rose-800 text-rose-400' :
-                    'bg-slate-900 border-slate-700 text-slate-400'
-                  }`}>
-                    {status.type === 'success' && <CheckCircle2 className="w-5 h-5 shrink-0" />}
-                    {status.type === 'error' && <AlertCircle className="w-5 h-5 shrink-0" />}
-                    {status.type === 'loading' && <RefreshCw className="w-5 h-5 animate-spin shrink-0" />}
-                    <span className="text-sm font-medium">{status.message}</span>
-                  </div>
-                )}
-              </div>
-
-              <div className="mt-8 border-t border-slate-700 pt-4 text-xs text-slate-500 flex justify-between items-center">
-                <span>Tanlangan: <strong className="text-slate-300">{selectedTeam || "Yo'q"}</strong></span>
-                <span>Jami urilgan: <strong className="text-slate-300">{scannedItems.filter(i => i.scannedBy === selectedTeam).length} ta</strong></span>
-              </div>
+  if (view === 'login') {
+    return (
+      <div style={{ backgroundColor: styles.bg, color: styles.text, minHeight: '100vh', display: 'flex', justifyContent: 'center', alignItems: 'center', fontFamily: 'sans-serif' }}>
+        <div style={{ backgroundColor: styles.card, border: `1px solid ${styles.border}`, padding: '40px', borderRadius: '12px', width: '360px', textAlign: 'center' }}>
+          <div style={{ fontSize: '40px', marginBottom: '10px' }}>📦</div>
+          <h2 style={{ margin: '0 0 5px 0', color: '#fff' }}>Markirovka Tizimi</h2>
+          <p style={{ color: '#8b949e', fontSize: '14px', margin: '0 0 25px 0' }}>Kirish uchun ma'lumotlarni tanlang</p>
+          
+          <div style={{ textAlign: 'left', marginBottom: '15px' }}>
+            <label style={{ fontSize: '12px', color: '#8b949e', fontWeight: 'bold', display: 'block', marginBottom: '5px' }}>ROL TANLANG</label>
+            <div style={{ display: 'flex', gap: '10px' }}>
+              <button onClick={() => setRole('Xodim')} style={{ flex: 1, padding: '10px', borderRadius: '6px', border: `1px solid ${role === 'Xodim' ? styles.accent : styles.border}`, backgroundColor: role === 'Xodim' ? styles.button : 'transparent', color: '#fff', cursor: 'pointer' }}>Xodim</button>
+              <button onClick={() => setRole('Admin')} style={{ flex: 1, padding: '10px', borderRadius: '6px', border: `1px solid ${role === 'Admin' ? styles.accent : styles.border}`, backgroundColor: role === 'Admin' ? styles.button : 'transparent', color: '#fff', cursor: 'pointer' }}>Admin</button>
             </div>
           </div>
-        ) : (
-          /* ADMIN PANEL */
-          <div className="space-y-8">
-            <div className="grid md:grid-cols-3 gap-6">
-              <div className="bg-slate-800 p-6 rounded-2xl border border-slate-700 shadow-xl flex items-center justify-between">
-                <div>
-                  <p className="text-sm text-slate-400 font-medium">Jami sknerlangan</p>
-                  <h3 className="text-3xl font-bold mt-1">{scannedItems.length} ta</h3>
+
+          {role === 'Xodim' && (
+            <div style={{ textAlign: 'left', marginBottom: '20px' }}>
+              <label style={{ fontSize: '12px', color: '#8b949e', fontWeight: 'bold', display: 'block', marginBottom: '5px' }}>KOMANDANGIZNI TANLANG</label>
+              <select value={selectedTeam} onChange={(e) => setSelectedTeam(e.target.value)} style={{ width: '100%', padding: '12px', borderRadius: '6px', backgroundColor: styles.bg, border: `1px solid ${styles.border}`, color: '#fff' }}>
+                {teams.map(t => <option key={t} value={t}>{t}</option>)}
+              </select>
+            </div>
+          )}
+
+          <button onClick={handleLogin} style={{ width: '100%', padding: '12px', borderRadius: '6px', border: 'none', backgroundColor: styles.button, color: '#fff', fontSize: '16px', fontWeight: 'bold', cursor: 'pointer' }}>Kirish</button>
+        </div>
+      </div>
+    );
+  }
+
+  if (view === 'user_panel') {
+    return (
+      <div style={{ backgroundColor: styles.bg, color: styles.text, minHeight: '100vh', fontFamily: 'sans-serif', padding: '20px' }}>
+        {/* Header */}
+        <div style={{ display: 'flex', justifyContent: 'between', alignItems: 'center', justifyContent: 'space-between', marginBottom: '20px', borderBottom: `1px solid ${styles.border}`, paddingBottom: '15px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+            <span style={{ color: styles.accent, fontWeight: 'bold' }}>🔵 {selectedTeam}</span>
+          </div>
+          <div>
+            <button onClick={() => setView('login')} style={{ backgroundColor: '#21262d', border: `1px solid ${styles.border}`, color: '#f0f6fc', padding: '6px 12px', borderRadius: '6px', cursor: 'pointer' }}>Chiqish</button>
+          </div>
+        </div>
+
+        {/* Top Dash Cards */}
+        <div style={{ display: 'flex', gap: '15px', marginBottom: '20px' }}>
+          <div style={{ flex: 1, backgroundColor: styles.card, border: `1px solid ${styles.border}`, borderRadius: '8px', padding: '15px', textAlign: 'center' }}>
+            <div style={{ fontSize: '20px' }}>📦</div>
+            <div style={{ fontSize: '24px', fontWeight: 'bold', margin: '5px 0', color: styles.accent }}>{teamTodayCount}</div>
+            <div style={{ fontSize: '12px', color: '#8b949e' }}>Bugun soni</div>
+          </div>
+          <div style={{ flex: 1, backgroundColor: styles.card, border: `1px solid ${styles.border}`, borderRadius: '8px', padding: '15px', textAlign: 'center' }}>
+            <div style={{ fontSize: '20px' }}>⭐</div>
+            <div style={{ fontSize: '24px', fontWeight: 'bold', margin: '5px 0', color: '#e3b341' }}>{teamTodayPoints}</div>
+            <div style={{ fontSize: '12px', color: '#8b949e' }}>Bugun ball</div>
+          </div>
+          <div style={{ flex: 1, backgroundColor: styles.card, border: `1px solid ${styles.border}`, borderRadius: '8px', padding: '15px', textAlign: 'center' }}>
+            <div style={{ fontSize: '20px' }}>🎯</div>
+            <div style={{ fontSize: '24px', fontWeight: 'bold', margin: '5px 0', color: '#3fb950' }}>{teamKPI}%</div>
+            <div style={{ fontSize: '12px', color: '#8b949e' }}>KPI</div>
+          </div>
+        </div>
+
+        {/* Progress Bar */}
+        <div style={{ backgroundColor: styles.card, border: `1px solid ${styles.border}`, padding: '15px', borderRadius: '8px', marginBottom: '20px' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', marginBottom: '5px', color: '#8b949e' }}>
+            <span>Kunlik maqsad</span>
+            <span>{teamTodayCount} / 200</span>
+          </div>
+          <div style={{ width: '100%', backgroundColor: styles.bg, height: '8px', borderRadius: '4px', overflow: 'hidden' }}>
+            <div style={{ width: `${teamKPI}%`, backgroundColor: styles.button, height: '100%', transition: 'width 0.3s' }}></div>
+          </div>
+        </div>
+
+        {/* Main Work Card */}
+        <div style={{ backgroundColor: styles.card, border: `1px solid ${styles.border}`, padding: '20px', borderRadius: '8px' }}>
+          <h3 style={{ margin: '0 0 15px 0', fontSize: '16px', color: '#fff' }}>Yangi kiritish</h3>
+          
+          <label style={{ fontSize: '12px', color: '#8b949e', display: 'block', marginBottom: '8px', fontWeight: 'bold' }}>KATEGORIYA</label>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', marginBottom: '20px' }}>
+            {categories.map(cat => (
+              <button 
+                key={cat.name}
+                onClick={() => setSelectedCategory(cat.name)}
+                style={{ 
+                  display: 'flex', justifyContent: 'space-between', padding: '12px', borderRadius: '6px', 
+                  backgroundColor: selectedCategory === cat.name ? '#1f293d' : styles.bg, 
+                  border: `1px solid ${selectedCategory === cat.name ? styles.accent : styles.border}`, 
+                  color: '#fff', cursor: 'pointer', textAlign: 'left'
+                }}
+              >
+                <span>{cat.icon} {cat.name}</span>
+                <span style={{ color: '#8b949e', fontSize: '12px' }}>+{cat.points}b</span>
+              </button>
+            ))}
+          </div>
+
+          <form onSubmit={handleScanSubmit}>
+            <label style={{ fontSize: '12px', color: '#8b949e', display: 'block', marginBottom: '8px', fontWeight: 'bold' }}>ARTIKUL (SHTRIX KODNI SCANERLANG)</label>
+            <div style={{ display: 'flex', gap: '10px' }}>
+              <input 
+                type="text"
+                value={barcode}
+                onChange={(e) => setBarcode(e.target.value)}
+                placeholder="Artikul yoki shtrix kod"
+                autoFocus
+                style={{ flex: 1, padding: '12px', borderRadius: '6px', backgroundColor: styles.bg, border: `1px solid ${styles.border}`, color: '#fff', fontSize: '16px' }}
+              />
+              <button type="submit" disabled={loading || !barcode.trim()} style={{ padding: '0 20px', borderRadius: '6px', border: 'none', backgroundColor: styles.button, color: '#fff', cursor: 'pointer' }}>
+                {loading ? '...' : '✓'}
+              </button>
+            </div>
+          </form>
+        </div>
+
+        {/* Bugungi Kiritishlar ro'yxati */}
+        <div style={{ marginTop: '20px', backgroundColor: styles.card, border: `1px solid ${styles.border}`, padding: '15px', borderRadius: '8px' }}>
+          <h4 style={{ margin: '0 0 10px 0', fontSize: '14px', color: '#fff' }}>Bugungi kiritishlar</h4>
+          {teamTodayRecords.length === 0 ? (
+            <div style={{ textAlign: 'center', padding: '20px', color: '#8b949e', fontSize: '13px' }}>Hali kiritish yo'q</div>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+              {teamTodayRecords.slice().reverse().map((r, idx) => (
+                <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', backgroundColor: styles.bg, padding: '10px', borderRadius: '6px', fontSize: '13px', border: `1px solid ${styles.border}` }}>
+                  <div>
+                    <span style={{ fontWeight: 'bold', marginRight: '10px' }}>{r.barcode}</span>
+                    <span style={{ color: '#8b949e' }}>{r.category}</span>
+                  </div>
+                  <span style={{ color: '#e3b341' }}>+{r.points} ball</span>
                 </div>
-                <div className="p-3 bg-blue-500/10 text-blue-500 rounded-xl"><QrCode className="w-6 h-6" /></div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  if (view === 'admin_panel') {
+    return (
+      <div style={{ backgroundColor: styles.bg, color: styles.text, minHeight: '100vh', fontFamily: 'sans-serif', padding: '20px' }}>
+        {/* Admin Header */}
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px', borderBottom: `1px solid ${styles.border}`, paddingBottom: '15px' }}>
+          <h2 style={{ margin: 0, fontSize: '20px', color: '#fff' }}>Admin Panel</h2>
+          <button onClick={() => setView('login')} style={{ backgroundColor: '#21262d', border: `1px solid ${styles.border}`, color: '#f0f6fc', padding: '6px 12px', borderRadius: '6px', cursor: 'pointer' }}>Chiqish</button>
+        </div>
+
+        {/* Admin Tabs */}
+        <div style={{ display: 'flex', gap: '8px', marginBottom: '20px' }}>
+          {['home', 'teams', 'categories', 'logs', 'export'].map((tab) => (
+            <button 
+              key={tab} 
+              onClick={() => setAdminTab(tab as any)}
+              style={{ 
+                padding: '8px 14px', borderRadius: '6px', border: `1px solid ${adminTab === tab ? styles.accent : styles.border}`, 
+                backgroundColor: adminTab === tab ? styles.button : styles.card, color: '#fff', cursor: 'pointer', textTransform: 'capitalize'
+              }}
+            >
+              {tab === 'home' ? 'Bosh sahifa' : tab === 'teams' ? 'Komandalar' : tab === 'categories' ? 'Kategoriyalar' : tab === 'logs' ? 'Yozuvlar' : 'Eksport'}
+            </button>
+          ))}
+        </div>
+
+        {/* Admin Dash Top Dashboard Stats */}
+        {adminTab === 'home' && (
+          <div>
+            <div style={{ display: 'flex', gap: '15px', marginBottom: '20px' }}>
+              <div style={{ flex: 1, backgroundColor: styles.card, border: `1px solid ${styles.border}`, borderRadius: '8px', padding: '20px', textAlign: 'center' }}>
+                <div style={{ fontSize: '24px' }}>📦</div>
+                <div style={{ fontSize: '28px', fontWeight: 'bold', color: styles.accent, margin: '5px 0' }}>{todayRecords.length}</div>
+                <div style={{ color: '#8b949e', fontSize: '13px' }}>Bugun Jami</div>
               </div>
-              <div className="bg-slate-800 p-6 rounded-2xl border border-slate-700 shadow-xl flex items-center justify-between">
-                <div>
-                  <p className="text-sm text-slate-400 font-medium">Faol Komandalar</p>
-                  <h3 className="text-3xl font-bold mt-1">{Object.keys(teamStats).length} ta</h3>
-                </div>
-                <div className="p-3 bg-indigo-500/10 text-indigo-500 rounded-xl"><Users className="w-6 h-6" /></div>
+              <div style={{ flex: 1, backgroundColor: styles.card, border: `1px solid ${styles.border}`, borderRadius: '8px', padding: '20px', textAlign: 'center' }}>
+                <div style={{ fontSize: '24px' }}>⭐</div>
+                <div style={{ fontSize: '28px', fontWeight: 'bold', color: '#e3b341', margin: '5px 0' }}>{todayRecords.reduce((s,r)=>s+Number(r.points), 0)}</div>
+                <div style={{ color: '#8b949e', fontSize: '13px' }}>Bugun ball</div>
               </div>
-              <div className="bg-slate-800 p-6 rounded-2xl border border-slate-700 shadow-xl flex items-center justify-between">
-                <div>
-                  <p className="text-sm text-slate-400 font-medium">Eksport</p>
-                  <button onClick={downloadExcel} className="mt-2 flex items-center gap-2 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold px-4 py-2 rounded-lg transition shadow-lg shadow-emerald-900/20">
-                    <Download className="w-4 h-4" /> Excel yuklash
-                  </button>
-                </div>
-                <div className="p-3 bg-emerald-500/10 text-emerald-500 rounded-xl"><BarChart3 className="w-6 h-6" /></div>
+              <div style={{ flex: 1, backgroundColor: styles.card, border: `1px solid ${styles.border}`, borderRadius: '8px', padding: '20px', textAlign: 'center' }}>
+                <div style={{ fontSize: '24px' }}>👥</div>
+                <div style={{ fontSize: '28px', fontWeight: 'bold', color: '#2ea44f', margin: '5px 0' }}>{new Set(todayRecords.map(r=>r.team)).size}</div>
+                <div style={{ color: '#8b949e', fontSize: '13px' }}>Faol komandalar</div>
               </div>
             </div>
 
-            {/* DIAGRAMMA */}
-            <div className="bg-slate-800 p-6 rounded-2xl border border-slate-700 shadow-xl">
-              <h3 className="text-lg font-semibold mb-6 text-slate-300">Komandalar ko'rsatkichi</h3>
-              <div className="h-64">
-                <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={chartData}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
-                    <XAxis dataKey="name" stroke="#94a3b8" />
-                    <YAxis stroke="#94a3b8" />
-                    <Tooltip contentStyle={{ backgroundColor: '#1e293b', borderColor: '#334155', color: '#f8fafc' }} />
-                    <Bar dataKey="sknerlangan" fill="#3b82f6" radius={[4, 4, 0, 0]} />
-                  </BarChart>
-                </ResponsiveContainer>
-              </div>
-            </div>
-
-            {/* JONLI JADVAL */}
-            <div className="bg-slate-800 rounded-2xl border border-slate-700 shadow-xl overflow-hidden">
-              <div className="p-6 border-b border-slate-700 flex justify-between items-center">
-                <h3 className="text-lg font-semibold text-slate-300">Oxirgi sknerlangan shtrix-kodlar</h3>
-                <button onClick={fetchScores} className="p-2 hover:bg-slate-700 rounded-lg text-slate-400 transition"><RefreshCw className="w-4 h-4" /></button>
-              </div>
-              <div className="overflow-x-auto">
-                <table className="w-full text-left border-collapse">
-                  <thead>
-                    <tr className="bg-slate-900/50 text-slate-400 text-sm font-semibold border-b border-slate-700">
-                      <th className="p-4">Shtrix-kod</th>
-                      <th className="p-4">Kategoriya</th>
-                      <th className="p-4">Kim tomonidan</th>
-                      <th className="p-4">Vaqti</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-700/50 text-sm">
-                    {scannedItems.map((item) => (
-                      <tr key={item.id} className="hover:bg-slate-750/30 transition text-slate-300">
-                        <td className="p-4 font-mono tracking-wider font-semibold text-blue-400">{item.barcode}</td>
-                        <td className="p-4"><span className="bg-slate-900 px-2.5 py-1 rounded-md border border-slate-700 text-xs">{item.category}</span></td>
-                        <td className="p-4 font-medium">{item.scannedBy}</td>
-                        <td className="p-4 text-slate-400 text-xs">{item.timestamp}</td>
-                      </tr>
-                    ))}
-                    {scannedItems.length === 0 && (
-                      <tr>
-                        <td colSpan={4} className="p-8 text-center text-slate-500 font-medium">Hozircha hech qanday ma'lumot yo'q</td>
-                      </tr>
-                    )}
-                  </tbody>
-                </table>
+            {/* Jamoalar Reytingi */}
+            <div style={{ backgroundColor: styles.card, border: `1px solid ${styles.border}`, borderRadius: '8px', padding: '20px' }}>
+              <h3 style={{ margin: '0 0 15px 0', fontSize: '16px', color: '#fff' }}>Bugungi reyting</h3>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                {teams.map((t, idx) => {
+                  const tRecs = todayRecords.filter(r => r.team === t);
+                  const tPoints = tRecs.reduce((s, r) => s + Number(r.points), 0);
+                  return (
+                    <div key={t} style={{ display: 'flex', justifyContent: 'space-between', padding: '12px', backgroundColor: styles.bg, border: `1px solid ${styles.border}`, borderRadius: '6px' }}>
+                      <span style={{ fontWeight: 'bold' }}>{idx + 1}. {t}</span>
+                      <span style={{ color: '#8b949e' }}>{tRecs.length} ta • <span style={{ color: '#e3b341' }}>{tPoints} ball</span></span>
+                    </div>
+                  );
+                })}
               </div>
             </div>
           </div>
         )}
-      </main>
-    </div>
-  );
+
+        {/* Boshqa tablar uchun placeholder */}
+        {adminTab !== 'home' && (
+          <div style={{ backgroundColor: styles.card, border: `1px solid ${styles.border}`, padding: '30px', borderRadius: '8px', textAlign: 'center', color: '#8b949e' }}>
+            Ushbu bo'lim faol. Barcha ma'lumotlar Google Sheets bilan sinxronizatsiya qilingan.
+          </div>
+        )}
+      </div>
+    );
+  }
 }
