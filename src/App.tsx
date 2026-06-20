@@ -20,7 +20,7 @@ function App() {
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState('');
 
-  // Kataklarni bloklash (kodlash) rejimi uchun o'zgaruvchilar (Sizning eski funksiyangiz)
+  // Kataklarni bloklash (kodlash) rejimi uchun o'zgaruvchilar
   const [isLocked, setIsLocked] = useState(false);
   const [password, setPassword] = useState('');
   const [inputPassword, setInputPassword] = useState('');
@@ -44,7 +44,7 @@ function App() {
     return () => clearInterval(interval);
   }, []);
 
-  // Ma'lumotni Google Forms orqali blokirovkalarsiz yuborish
+  // Ma'lumotni Google Forms'ga Google ssilkasidagi aniq tartibda yuborish
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!barcode.trim()) return;
@@ -55,13 +55,13 @@ function App() {
     const id = Date.now().toString();
     const timestamp = new Date().toLocaleString('ru-RU');
 
-    // To'g'rilangan aniq ID kodlar
+    // Ssilkangizdan olingan TUGAL va ANIQ moslik:
     const formData = new FormData();
-    formData.append('entry.12103623', id);
-    formData.append('entry.461888778', barcode);
-    formData.append('entry.1267765724', category);
-    formData.append('entry.2037054881', scannedBy);
-    formData.append('entry.1783681359', timestamp);
+    formData.append('entry.12103623', id);          // id
+    formData.append('entry.461888778', barcode);     // barcode
+    formData.append('entry.1267765724', category);   // category
+    formData.append('entry.2037054881', scannedBy);  // scannedBy
+    formData.append('entry.1783681359', timestamp);  // timestamp
 
     try {
       await fetch(GOOGLE_FORM_URL, {
@@ -72,7 +72,7 @@ function App() {
 
       setMessage('Muvaffaqiyatli saqlandi!');
       setBarcode('');
-      fetchItems(); // Ro'yxatni yangilash
+      fetchItems(); // Ekrandagi ro'yxatni darhol yangilashga so'rov yuborish
     } catch (error) {
       setMessage('Xatolik yuz berdi, qayta urining.');
     } finally {
@@ -81,10 +81,9 @@ function App() {
     }
   };
 
-  // Kataklarni bloklash funksiyalari (Eski funksiya)
   const handleLock = () => {
     if (password.trim() === '') {
-      alert('Iltimos, oldin parol o'rnating!');
+      alert('Iltimos, oldin parol o\'rnating!');
       return;
     }
     setIsLocked(true);
@@ -95,7 +94,7 @@ function App() {
       setIsLocked(false);
       setInputPassword('');
     } else {
-      alert('Parol noto'g'ri!');
+      alert('Parol noto\'g\'ri!');
     }
   };
 
