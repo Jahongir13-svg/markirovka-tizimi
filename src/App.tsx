@@ -1,9 +1,9 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, LineChart, Line } from 'recharts';
-import { Shield, Users, BarChart3, QrCode, Download, RefreshCw, CheckCircle2, AlertCircle, LogOut } from 'lucide-react';
-import * as XLSX from 'xlsx';
+import React, { useState, useEffect } from 'react';
+import { Barcode, Server, Settings, Database, RefreshCw, User, ClipboardList, CheckCircle } from 'lucide-react';
 
-// Google Sheets API URL - To'g'ridan-to'g'ri ulangan baza ssilkasi
+// Google Forms integratsiyasi
+const GOOGLE_FORM_SUBMIT_URL = 'https://docs.google.com/forms/d/e/1FAIpQLScQuAM4Fq2vA_RejU6tIEGM7-cxa93TTOkd6vizfiziCY15qQ/formResponse';
+// Ma'lumotlarni o'qish uchun Google Apps Script ssilkasi o'z joyida qoladi
 const GOOGLE_SHEETS_URL = 'https://script.google.com/macros/s/AKfycbwZPl6bzpblC1FI4wUe-80yY6a8AI74Slox1kjAzgg26lfTIr1ywqvJ-rtxhQtOXPkZMw/exec';
 
 interface ScannedItem {
@@ -14,267 +14,255 @@ interface ScannedItem {
   timestamp: string;
 }
 
-export default function App() {
-  const [isAdmin, setIsAdmin] = useState(false);
-  const [password, setPassword] = useState('');
-  const [selectedTeam, setSelectedTeam] = useState('');
+function App() {
   const [barcode, setBarcode] = useState('');
-  const [scannedItems, setScannedItems] = useState<ScannedItem[]>([]);
-  const [status, setStatus] = useState<{ type: 'success' | 'error' | 'loading' | null; message: string }>({ type: null, message: '' });
-  
-  const barcodeInputRef = useRef<HTMLInputElement>(null);
+  const [category, setCategory] = useState('Komanda A');
+  const [scannedBy, setScannedBy] = useState('Skaner 1');
+  const [items, setItems] = useState<ScannedItem[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [statusMessage, setStatusMessage] = useState({ text: '', isError: false });
 
-  // 1. Onlayn bazadan (Google Sheets) ma'lumotlarni yuklab olish
-  const fetchScores = async () => {
-    if (!GOOGLE_SHEETS_URL) return;
+  // Google Sheets'dan ma'lumotlarni har 5 soniyada tortib olish
+  const fetchItems = async () => {
     try {
       const response = await fetch(GOOGLE_SHEETS_URL);
       if (response.ok) {
         const data = await response.json();
-        // Kelayotgan ma'lumotlar massiv ekanligini tekshiramiz va teskari tartibda (eng yangisi tepada) joylashtiramiz
-        if (Array.isArray(data)) {
-          setScannedItems([...data].reverse());
-        }
+        setItems(data.reverse()); // Eng yangi ma'lumotlar tepada ko'rinishi uchun
       }
     } catch (error) {
-      console.error("Ma'lumotlarni yuklashda xatolik:", error);
+      console.error("Ma'lumot olishda xato:", error);
     }
   };
 
   useEffect(() => {
-    fetchScores();
-    const interval = setInterval(fetchScores, 5000); // Har 5 soniyada bazani yangilab turadi
+    fetchItems();
+    const interval = setInterval(fetchItems, 5000);
     return () => clearInterval(interval);
   }, []);
 
-  useEffect(() => {
-    if (selectedTeam && barcodeInputRef.current) {
-      barcodeInputRef.current.focus();
-    }
-  }, [selectedTeam]);
-
-  // 2. Shtrix-kodni sknerlaganda onlayn bazaga yuborish
-  const handleBarcodeSubmit = async (e: React.FormEvent) => {
+  // Ma'lumotni Google Forms orqali xavfsiz yuborish
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!barcode.trim() || !selectedTeam) return;
+    if (!barcode.trim()) return;
 
-    const cleanBarcode = barcode.trim();
-    
-    // Kategoriyani shtrix-kod uzunligi yoki prefiksiga qarab ajratish
-    let category = "Boshqa mahsulot";
-    if (cleanBarcode.length >= 10) category = "Katta O'lcham";
-    else if (cleanBarcode.length > 0) category = "Standart Markirovka";
+    setLoading(true);
+    setStatusMessage({ text: 'Yuborilmoqda...', isError: false });
 
-    const newItem: ScannedItem = {
-      id: Math.random().toString(36).substring(2, 9),
-      barcode: cleanBarcode,
-      category: category,
-      scannedBy: selectedTeam,
-      timestamp: new Date().toLocaleString('uz-UZ'),
-    };
+    const itemId = Date.now().toString();
+    const currentTimestamp = new Date().toLocaleString('ru-RU');
 
-    setStatus({ type: 'loading', message: 'Saqlanmoqda...' });
+    // Google Forms formatidagi ma'lumot tuzilmasi
+    const formData = new FormData();
+    formData.append('entry.313014902', itemId);
+    formData.append('entry.1747808269', barcode);
+    formData.append('entry.817346141', category);
+    formData.append('entry.1983056073', scannedBy);
+    formData.append('entry.1472895697', currentTimestamp);
 
     try {
-      await fetch(GOOGLE_SHEETS_URL, {
+      // no-cors rejimi Google Forms xavfsizlik to'sig'idan osongina o'tadi
+      await fetch(GOOGLE_FORM_SUBMIT_URL, {
         method: 'POST',
-        mode: 'no-cors', // Google Apps Script cheklovlarini aylanib o'tish uchun
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(newItem)
+        mode: 'no-cors',
+        body: formData
       });
-      
-      // Muvaffaqiyatli urilganda mahalliy stateni ham yangilaymiz
-      setScannedItems(prev => [newItem, ...prev]);
-      setStatus({ type: 'success', message: `Shtrix-kod muvaffaqiyatli urildi: ${cleanBarcode}` });
+
+      setStatusMessage({ text: 'Muvaffaqiyatli saqlandi!', isError: false });
       setBarcode('');
       
-      // Zudlik bilan bazadan qayta tekshirish
-      setTimeout(fetchScores, 1000);
+      // Mahalliy ro'yxatni darhol yangilash
+      const newItem: ScannedItem = {
+        id: itemId,
+        barcode: barcode,
+        category: category,
+        scannedBy: scannedBy,
+        timestamp: currentTimestamp
+      };
+      setItems(prev => [newItem, ...prev]);
+
+      // 3 soniyadan keyin statush xabarini o'chirish
+      setTimeout(() => setStatusMessage({ text: '', isError: false }), 3000);
     } catch (error) {
-      setStatus({ type: 'error', message: 'Internet xatoligi! Baza bilan aloqa yo\'q.' });
+      setStatusMessage({ text: 'Tizimda xato yuz berdi. Qayta urining.', isError: true });
+    } finally {
+      setLoading(false);
     }
-
-    if (barcodeInputRef.current) barcodeInputRef.current.focus();
   };
-
-  // Excel fayl yuklab olish funksiyasi
-  const downloadExcel = () => {
-    const worksheet = XLSX.utils.json_to_sheet(scannedItems);
-    const workbook = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(workbook, worksheet, "Markirovka_Hisobot");
-    XLSX.writeFile(workbook, `Markirovka_Hisobot_${new Date().toLocaleDateString()}.xlsx`);
-  };
-
-  // Statistika hisob-kitoblari
-  const teamStats = scannedItems.reduce((acc: any, item) => {
-    acc[item.scannedBy] = (acc[item.scannedBy] || 0) + 1;
-    return acc;
-  }, {});
-
-  const chartData = Object.keys(teamStats).map(key => ({
-    name: key,
-    sknerlangan: teamStats[key]
-  }));
 
   return (
-    <div className="min-h-screen bg-slate-900 text-slate-100 font-sans p-4 md:p-8">
-      {/* HEADER */}
-      <header className="max-w-6xl mx-auto flex justify-between items-center border-b border-slate-800 pb-6 mb-8">
-        <div className="flex items-center gap-3">
-          <QrCode className="w-8 h-8 text-blue-500" />
-          <h1 className="text-xl md:text-2xl font-bold tracking-tight">Markirovka Nazorat Tizimi</h1>
+    <div className="min-gradient-bg min-h-screen text-slate-800 font-sans">
+      {/* Header */}
+      <header className="bg-white/80 backdrop-blur-md border-b border-slate-100 sticky top-0 z-50 px-4 py-4 shadow-sm">
+        <div className="max-w-6xl mx-auto flex items-center justify-between">
+          <div className="flex items-center space-x-3">
+            <div className="bg-blue-600 text-white p-2 rounded-xl shadow-md shadow-blue-200">
+              <Barcode className="w-6 h-6" />
+            </div>
+            <div>
+              <h1 className="text-xl font-bold bg-gradient-to-r from-slate-900 to-slate-700 bg-clip-text text-transparent">
+                Markirovka & TSD Tizimi
+              </h1>
+              <p className="text-xs text-slate-400 font-medium">Ombor Logistikasi Terminali</p>
+            </div>
+          </div>
+          <div className="flex items-center space-x-2 bg-emerald-50 text-emerald-700 px-3 py-1.5 rounded-full text-xs font-semibold border border-emerald-100">
+            <span className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse"></span>
+            <span>Google Sheets Bog'langan</span>
+          </div>
         </div>
-        <button 
-          onClick={() => setIsAdmin(!isAdmin)}
-          className="flex items-center gap-2 bg-slate-800 hover:bg-slate-700 text-sm font-medium px-4 py-2 rounded-lg transition"
-        >
-          <Shield className="w-4 h-4 text-blue-400" />
-          {isAdmin ? "Skaner Bo'limi" : "Admin Panel"}
-        </button>
       </header>
 
-      <main className="max-w-6xl mx-auto">
-        {/* SKANER REJIMi */}
-        {!isAdmin ? (
-          <div className="grid md:grid-cols-3 gap-8">
-            <div className="bg-slate-800 p-6 rounded-2xl border border-slate-700 shadow-xl">
-              <h2 className="text-lg font-semibold mb-4 flex items-center gap-2 text-blue-400">
-                <Users className="w-5 h-5" /> 1. Komandani tanlang
-              </h2>
-              <div className="space-y-2">
-                {['Komanda A', 'Komanda B', 'Komanda C', 'Supervayzer'].map((team) => (
-                  <button
-                    key={team}
-                    onClick={() => setSelectedTeam(team)}
-                    className={`w-full text-left p-4 rounded-xl font-medium border transition ${
-                      selectedTeam === team 
-                        ? 'bg-blue-600 border-blue-500 text-white shadow-lg shadow-blue-900/30' 
-                        : 'bg-slate-800/50 border-slate-700 hover:bg-slate-700 text-slate-300'
-                    }`}
-                  >
-                    {team}
-                  </button>
-                ))}
-              </div>
+      <main className="max-w-6xl mx-auto px-4 py-8 grid grid-cols-1 md:grid-cols-3 gap-8">
+        {/* Chap taraf: Skaner paneli */}
+        <div className="md:col-span-1 space-y-6">
+          <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
+            <div className="flex items-center space-x-2 mb-6">
+              <Server className="w-5 h-5 text-blue-600" />
+              <h2 className="text-lg font-bold text-slate-800">TSD Terminali</h2>
             </div>
 
-            <div className="md:col-span-2 bg-slate-800 p-6 rounded-2xl border border-slate-700 shadow-xl flex flex-col justify-between">
+            <form onSubmit={handleSubmit} className="space-y-4">
               <div>
-                <h2 className="text-lg font-semibold mb-4 text-blue-400">2. Shtrix-kodni sknerlang</h2>
-                <form onSubmit={handleBarcodeSubmit} className="space-y-4">
-                  <input
-                    ref={barcodeInputRef}
-                    type="text"
-                    disabled={!selectedTeam}
-                    value={barcode}
-                    onChange={(e) => setBarcode(e.target.value)}
-                    placeholder={selectedTeam ? "Skanerlashni boshlang..." : "Avval komandani tanlang"}
-                    className="w-full bg-slate-900 border border-slate-700 rounded-xl p-4 text-xl tracking-wider text-center focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50 transition"
-                  />
-                </form>
+                <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">
+                  Skanerlovchi Shaxs / Qurilma
+                </label>
+                <div className="relative">
+                  <User className="absolute left-3 top-3 w-5 h-5 text-slate-400" />
+                  <select
+                    value={scannedBy}
+                    onChange={(e) => setScannedBy(e.target.value)}
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl pl-10 pr-4 py-2.5 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all appearance-none"
+                  >
+                    <option value="Skaner 1">Skaner 1 (Asosiy)</option>
+                    <option value="Skaner 2">Skaner 2 (Zaxira)</option>
+                    <option value="Ombor Mudiri">Ombor Mudiri</option>
+                  </select>
+                </div>
+              </div>
 
-                {status.type && (
-                  <div className={`mt-4 p-4 rounded-xl flex items-center gap-3 border ${
-                    status.type === 'success' ? 'bg-emerald-950/40 border-emerald-800 text-emerald-400' :
-                    status.type === 'error' ? 'bg-rose-950/40 border-rose-800 text-rose-400' :
-                    'bg-slate-900 border-slate-700 text-slate-400'
-                  }`}>
-                    {status.type === 'success' && <CheckCircle2 className="w-5 h-5 shrink-0" />}
-                    {status.type === 'error' && <AlertCircle className="w-5 h-5 shrink-0" />}
-                    {status.type === 'loading' && <RefreshCw className="w-5 h-5 animate-spin shrink-0" />}
-                    <span className="text-sm font-medium">{status.message}</span>
-                  </div>
+              <div>
+                <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">
+                  Ishchi Komanda / Kategoriya
+                </label>
+                <div className="relative">
+                  <Settings className="absolute left-3 top-3 w-5 h-5 text-slate-400" />
+                  <select
+                    value={category}
+                    onChange={(e) => setCategory(e.target.value)}
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl pl-10 pr-4 py-2.5 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all appearance-none"
+                  >
+                    <option value="Komanda A">Komanda A</option>
+                    <option value="Komanda B">Komanda B</option>
+                    <option value="Komanda C">Komanda C</option>
+                  </select>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">
+                  Shtrix-kodni Kiriting
+                </label>
+                <input
+                  type="text"
+                  value={barcode}
+                  onChange={(e) => setBarcode(e.target.value)}
+                  placeholder="Skanerlang yoki qo'lda yozing..."
+                  autoFocus
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm font-semibold tracking-wider placeholder:tracking-normal placeholder:font-normal focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all"
+                />
+              </div>
+
+              <button
+                type="submit"
+                disabled={loading || !barcode.trim()}
+                className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-4 rounded-xl shadow-lg shadow-blue-200 disabled:opacity-50 disabled:shadow-none transition-all flex items-center justify-center space-x-2"
+              >
+                {loading ? (
+                  <RefreshCw className="w-5 h-5 animate-spin" />
+                ) : (
+                  <>
+                    <CheckCircle className="w-5 h-5" />
+                    <span>Ma'lumotni Saqlash</span>
+                  </>
                 )}
-              </div>
+              </button>
+            </form>
 
-              <div className="mt-8 border-t border-slate-700 pt-4 text-xs text-slate-500 flex justify-between items-center">
-                <span>Tanlangan: <strong className="text-slate-300">{selectedTeam || "Yo'q"}</strong></span>
-                <span>Jami urilgan: <strong className="text-slate-300">{scannedItems.filter(i => i.scannedBy === selectedTeam).length} ta</strong></span>
+            {statusMessage.text && (
+              <div className={`mt-4 p-3 rounded-xl text-center text-xs font-bold border transition-all ${
+                statusMessage.isError 
+                  ? 'bg-rose-50 text-rose-600 border-rose-100' 
+                  : 'bg-emerald-50 text-emerald-700 border-emerald-100'
+              }`}>
+                {statusMessage.text}
               </div>
-            </div>
+            )}
           </div>
-        ) : (
-          /* ADMIN PANEL */
-          <div className="space-y-8">
-            <div className="grid md:grid-cols-3 gap-6">
-              <div className="bg-slate-800 p-6 rounded-2xl border border-slate-700 shadow-xl flex items-center justify-between">
-                <div>
-                  <p className="text-sm text-slate-400 font-medium">Jami sknerlangan (Bazada)</p>
-                  <h3 className="text-3xl font-bold mt-1">{scannedItems.length} ta</h3>
-                </div>
-                <div className="p-3 bg-blue-500/10 text-blue-500 rounded-xl"><QrCode className="w-6 h-6" /></div>
+        </div>
+
+        {/* O'ng taraf: Jonli Monitor Paneli */}
+        <div className="md:col-span-2">
+          <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 h-full flex flex-col">
+            <div className="flex items-center justify-between mb-6">
+              <div className="flex items-center space-x-2">
+                <Database className="w-5 h-5 text-blue-600" />
+                <h2 className="text-lg font-bold text-slate-800">Jonli Monitor paneli (Live)</h2>
               </div>
-              <div className="bg-slate-800 p-6 rounded-2xl border border-slate-700 shadow-xl flex items-center justify-between">
-                <div>
-                  <p className="text-sm text-slate-400 font-medium">Faol Komandalar</p>
-                  <h3 className="text-3xl font-bold mt-1">{Object.keys(teamStats).length} ta</h3>
-                </div>
-                <div className="p-3 bg-indigo-500/10 text-indigo-500 rounded-xl"><Users className="w-6 h-6" /></div>
-              </div>
-              <div className="bg-slate-800 p-6 rounded-2xl border border-slate-700 shadow-xl flex items-center justify-between">
-                <div>
-                  <p className="text-sm text-slate-400 font-medium">Eksport va Hisobot</p>
-                  <button onClick={downloadExcel} className="mt-2 flex items-center gap-2 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold px-4 py-2 rounded-lg transition shadow-lg shadow-emerald-900/20">
-                    <Download className="w-4 h-4" /> Excel yuklash
-                  </button>
-                </div>
-                <div className="p-3 bg-emerald-500/10 text-emerald-500 rounded-xl"><BarChart3 className="w-6 h-6" /></div>
-              </div>
+              <span className="text-xs font-semibold text-slate-400 bg-slate-50 px-2.5 py-1 rounded-md border border-slate-100 flex items-center space-x-1 animate-pulse">
+                <span className="w-1.5 h-1.5 bg-blue-500 rounded-full"></span>
+                <span>Har 5s yangilanadi</span>
+              </span>
             </div>
 
-            {/* DIAGRAMMA */}
-            <div className="bg-slate-800 p-6 rounded-2xl border border-slate-700 shadow-xl">
-              <h3 className="text-lg font-semibold mb-6 text-slate-300">Komandalar ko'rsatkichi (Jonli grafik)</h3>
-              <div className="h-64">
-                <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={chartData}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
-                    <XAxis dataKey="name" stroke="#94a3b8" />
-                    <YAxis stroke="#94a3b8" />
-                    <Tooltip contentStyle={{ backgroundColor: '#1e293b', borderColor: '#334155', color: '#f8fafc' }} />
-                    <Bar dataKey="sknerlangan" fill="#3b82f6" radius={[4, 4, 0, 0]} />
-                  </BarChart>
-                </ResponsiveContainer>
-              </div>
-            </div>
-
-            {/* JONLI JADVAL */}
-            <div className="bg-slate-800 rounded-2xl border border-slate-700 shadow-xl overflow-hidden">
-              <div className="p-6 border-b border-slate-700 flex justify-between items-center">
-                <h3 className="text-lg font-semibold text-slate-300">Barcha qurilmalardan kelayotgan jonli oqim</h3>
-                <button onClick={fetchScores} className="p-2 hover:bg-slate-700 rounded-lg text-slate-400 transition"><RefreshCw className="w-4 h-4" /></button>
-              </div>
-              <div className="overflow-x-auto">
+            <div className="flex-1 overflow-x-auto">
+              {items.length === 0 ? (
+                <div className="h-48 flex flex-col items-center justify-center text-slate-400 border border-dashed border-slate-200 rounded-xl bg-slate-50/50">
+                  <ClipboardList className="w-8 h-8 mb-2 text-slate-300" />
+                  <p className="text-sm font-medium">Hozircha skanerlangan ma'lumotlar yo'q</p>
+                </div>
+              ) : (
                 <table className="w-full text-left border-collapse">
                   <thead>
-                    <tr className="bg-slate-900/50 text-slate-400 text-sm font-semibold border-b border-slate-700">
-                      <th className="p-4">Shtrix-kod</th>
-                      <th className="p-4">Kategoriya</th>
-                      <th className="p-4">Kim tomonidan</th>
-                      <th className="p-4">Vaqti</th>
+                    <tr className="border-b border-slate-100">
+                      <th className="pb-3 text-xs font-bold text-slate-400 uppercase tracking-wider">ID</th>
+                      <th className="pb-3 text-xs font-bold text-slate-400 uppercase tracking-wider">Shtrix-kod</th>
+                      <th className="pb-3 text-xs font-bold text-slate-400 uppercase tracking-wider">Kategoriya</th>
+                      <th className="pb-3 text-xs font-bold text-slate-400 uppercase tracking-wider">Skaner</th>
+                      <th className="pb-3 text-xs font-bold text-slate-400 uppercase tracking-wider">Vaqti</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-slate-700/50 text-sm">
-                    {scannedItems.map((item, index) => (
-                      <tr key={item.id || index} className="hover:bg-slate-750/30 transition text-slate-300">
-                        <td className="p-4 font-mono tracking-wider font-semibold text-blue-400">{item.barcode}</td>
-                        <td className="p-4"><span className="bg-slate-900 px-2.5 py-1 rounded-md border border-slate-700 text-xs">{item.category}</span></td>
-                        <td className="p-4 font-medium">{item.scannedBy}</td>
-                        <td className="p-4 text-slate-400 text-xs">{item.timestamp}</td>
+                  <tbody className="divide-y divide-slate-50">
+                    {items.map((item, index) => (
+                      <tr key={item.id || index} className="hover:bg-slate-50/50 transition-colors group">
+                        <td className="py-3 text-xs font-mono text-slate-400">
+                          {item.id ? `${item.id.slice(-5)}...` : '-'}
+                        </td>
+                        <td className="py-3 text-sm font-bold text-slate-700 tracking-wider">
+                          {item.barcode}
+                        </td>
+                        <td className="py-3">
+                          <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-50 text-blue-700 border border-blue-100">
+                            {item.category}
+                          </span>
+                        </td>
+                        <td className="py-3 text-xs font-semibold text-slate-500">
+                          {item.scannedBy}
+                        </td>
+                        <td className="py-3 text-xs text-slate-400 font-medium">
+                          {item.timestamp}
+                        </td>
                       </tr>
                     ))}
-                    {scannedItems.length === 0 && (
-                      <tr>
-                        <td colSpan={4} className="p-8 text-center text-slate-500 font-medium">Bazada hozircha hech qanday ma'lumot yo'q. Skanerlashni boshlang!</td>
-                      </tr>
-                    )}
                   </tbody>
                 </table>
-              </div>
+              )}
             </div>
           </div>
-        )}
+        </div>
       </main>
     </div>
   );
 }
+
+export default App;
