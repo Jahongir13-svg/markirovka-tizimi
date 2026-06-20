@@ -3,8 +3,8 @@ import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, Responsive
 import { Shield, Users, BarChart3, QrCode, Download, RefreshCw, CheckCircle2, AlertCircle, LogOut } from 'lucide-react';
 import * as XLSX from 'xlsx';
 
-// Google Sheets API URL (Vercel yoki local muhitdan olinadi)
-const GOOGLE_SHEETS_URL = import.meta.env.VITE_GOOGLE_SHEETS_URL || '';
+// Google Sheets API URL - To'g'ridan-to'g'ri ulangan baza ssilkasi
+const GOOGLE_SHEETS_URL = 'https://script.google.com/macros/s/AKfycbwZPl6bzpblC1FI4wUe-80yY6a8AI74Slox1kjAzgg26lfTIr1ywqvJ-rtxhQtOXPkZMw/exec';
 
 interface ScannedItem {
   id: string;
@@ -21,18 +21,20 @@ export default function App() {
   const [barcode, setBarcode] = useState('');
   const [scannedItems, setScannedItems] = useState<ScannedItem[]>([]);
   const [status, setStatus] = useState<{ type: 'success' | 'error' | 'loading' | null; message: string }>({ type: null, message: '' });
-  const [syncing, setSyncing] = useState(false);
   
   const barcodeInputRef = useRef<HTMLInputElement>(null);
 
-  // 1. Bazadan (Google Sheets) ma'lumotlarni yuklab olish
+  // 1. Onlayn bazadan (Google Sheets) ma'lumotlarni yuklab olish
   const fetchScores = async () => {
     if (!GOOGLE_SHEETS_URL) return;
     try {
       const response = await fetch(GOOGLE_SHEETS_URL);
       if (response.ok) {
         const data = await response.json();
-        setScannedItems(data);
+        // Kelayotgan ma'lumotlar massiv ekanligini tekshiramiz va teskari tartibda (eng yangisi tepada) joylashtiramiz
+        if (Array.isArray(data)) {
+          setScannedItems([...data].reverse());
+        }
       }
     } catch (error) {
       console.error("Ma'lumotlarni yuklashda xatolik:", error);
@@ -41,7 +43,7 @@ export default function App() {
 
   useEffect(() => {
     fetchScores();
-    const interval = setInterval(fetchScores, 10000); // Har 10 soniyada yangilab turadi
+    const interval = setInterval(fetchScores, 5000); // Har 5 soniyada bazani yangilab turadi
     return () => clearInterval(interval);
   }, []);
 
@@ -51,17 +53,17 @@ export default function App() {
     }
   }, [selectedTeam]);
 
-  // 2. Shtrix-kodni sknerlaganda bazaga yuborish
+  // 2. Shtrix-kodni sknerlaganda onlayn bazaga yuborish
   const handleBarcodeSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!barcode.trim() || !selectedTeam) return;
 
     const cleanBarcode = barcode.trim();
     
-    // Kategoriyani aniqlash (Shtrix-kod uzunligi yoki prefiksiga qarab - o'zingizga moslang)
+    // Kategoriyani shtrix-kod uzunligi yoki prefiksiga qarab ajratish
     let category = "Boshqa mahsulot";
-    if (cleanBarcode.startsWith('A')) category = "A-Kategoriya";
-    else if (cleanBarcode.startsWith('B')) category = "B-Kategoriya";
+    if (cleanBarcode.length >= 10) category = "Katta O'lcham";
+    else if (cleanBarcode.length > 0) category = "Standart Markirovka";
 
     const newItem: ScannedItem = {
       id: Math.random().toString(36).substring(2, 9),
@@ -73,35 +75,29 @@ export default function App() {
 
     setStatus({ type: 'loading', message: 'Saqlanmoqda...' });
 
-    // Agar Google Sheets URL bo'lsa, onlayn yuboradi
-    if (GOOGLE_SHEETS_URL) {
-      try {
-        const response = await fetch(GOOGLE_SHEETS_URL, {
-          method: 'POST',
-          mode: 'no-cors', // Google Apps Script uchun muhim
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(newItem)
-        });
-        
-        // no-cors rejimida status har doim 0 bo'ladi, muvaffaqiyatli deb hisoblaymiz
-        setScannedItems(prev => [newItem, ...prev]);
-        setStatus({ type: 'success', message: `Shtrix-kod muvaffaqiyatli urildi: ${cleanBarcode}` });
-        setBarcode('');
-        fetchScores(); // Yangi ma'lumotlarni qayta o'qish
-      } catch (error) {
-        setStatus({ type: 'error', message: 'Internet xatoligi! Baza bilan aloqa yo\'q.' });
-      }
-    } else {
-      // Agar ssilka topilmasa, vaqtincha ekranda ko'rsatib turadi
+    try {
+      await fetch(GOOGLE_SHEETS_URL, {
+        method: 'POST',
+        mode: 'no-cors', // Google Apps Script cheklovlarini aylanib o'tish uchun
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(newItem)
+      });
+      
+      // Muvaffaqiyatli urilganda mahalliy stateni ham yangilaymiz
       setScannedItems(prev => [newItem, ...prev]);
-      setStatus({ type: 'success', message: 'Lokal saqlandi (Baza ulanmagan!)' });
+      setStatus({ type: 'success', message: `Shtrix-kod muvaffaqiyatli urildi: ${cleanBarcode}` });
       setBarcode('');
+      
+      // Zudlik bilan bazadan qayta tekshirish
+      setTimeout(fetchScores, 1000);
+    } catch (error) {
+      setStatus({ type: 'error', message: 'Internet xatoligi! Baza bilan aloqa yo\'q.' });
     }
 
     if (barcodeInputRef.current) barcodeInputRef.current.focus();
   };
 
-  // Excel yuklab olish funksiyasi
+  // Excel fayl yuklab olish funksiyasi
   const downloadExcel = () => {
     const worksheet = XLSX.utils.json_to_sheet(scannedItems);
     const workbook = XLSX.utils.book_new();
@@ -153,7 +149,7 @@ export default function App() {
                     className={`w-full text-left p-4 rounded-xl font-medium border transition ${
                       selectedTeam === team 
                         ? 'bg-blue-600 border-blue-500 text-white shadow-lg shadow-blue-900/30' 
-                        : 'bg-slate-800/50 border-slate-750 hover:bg-slate-750 text-slate-300'
+                        : 'bg-slate-800/50 border-slate-700 hover:bg-slate-700 text-slate-300'
                     }`}
                   >
                     {team}
@@ -203,7 +199,7 @@ export default function App() {
             <div className="grid md:grid-cols-3 gap-6">
               <div className="bg-slate-800 p-6 rounded-2xl border border-slate-700 shadow-xl flex items-center justify-between">
                 <div>
-                  <p className="text-sm text-slate-400 font-medium">Jami sknerlangan</p>
+                  <p className="text-sm text-slate-400 font-medium">Jami sknerlangan (Bazada)</p>
                   <h3 className="text-3xl font-bold mt-1">{scannedItems.length} ta</h3>
                 </div>
                 <div className="p-3 bg-blue-500/10 text-blue-500 rounded-xl"><QrCode className="w-6 h-6" /></div>
@@ -217,7 +213,7 @@ export default function App() {
               </div>
               <div className="bg-slate-800 p-6 rounded-2xl border border-slate-700 shadow-xl flex items-center justify-between">
                 <div>
-                  <p className="text-sm text-slate-400 font-medium">Eksport</p>
+                  <p className="text-sm text-slate-400 font-medium">Eksport va Hisobot</p>
                   <button onClick={downloadExcel} className="mt-2 flex items-center gap-2 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold px-4 py-2 rounded-lg transition shadow-lg shadow-emerald-900/20">
                     <Download className="w-4 h-4" /> Excel yuklash
                   </button>
@@ -228,7 +224,7 @@ export default function App() {
 
             {/* DIAGRAMMA */}
             <div className="bg-slate-800 p-6 rounded-2xl border border-slate-700 shadow-xl">
-              <h3 className="text-lg font-semibold mb-6 text-slate-300">Komandalar ko'rsatkichi</h3>
+              <h3 className="text-lg font-semibold mb-6 text-slate-300">Komandalar ko'rsatkichi (Jonli grafik)</h3>
               <div className="h-64">
                 <ResponsiveContainer width="100%" height="100%">
                   <BarChart data={chartData}>
@@ -245,7 +241,7 @@ export default function App() {
             {/* JONLI JADVAL */}
             <div className="bg-slate-800 rounded-2xl border border-slate-700 shadow-xl overflow-hidden">
               <div className="p-6 border-b border-slate-700 flex justify-between items-center">
-                <h3 className="text-lg font-semibold text-slate-300">Oxirgi sknerlangan shtrix-kodlar</h3>
+                <h3 className="text-lg font-semibold text-slate-300">Barcha qurilmalardan kelayotgan jonli oqim</h3>
                 <button onClick={fetchScores} className="p-2 hover:bg-slate-700 rounded-lg text-slate-400 transition"><RefreshCw className="w-4 h-4" /></button>
               </div>
               <div className="overflow-x-auto">
@@ -259,8 +255,8 @@ export default function App() {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-700/50 text-sm">
-                    {scannedItems.map((item) => (
-                      <tr key={item.id} className="hover:bg-slate-750/30 transition text-slate-300">
+                    {scannedItems.map((item, index) => (
+                      <tr key={item.id || index} className="hover:bg-slate-750/30 transition text-slate-300">
                         <td className="p-4 font-mono tracking-wider font-semibold text-blue-400">{item.barcode}</td>
                         <td className="p-4"><span className="bg-slate-900 px-2.5 py-1 rounded-md border border-slate-700 text-xs">{item.category}</span></td>
                         <td className="p-4 font-medium">{item.scannedBy}</td>
@@ -269,7 +265,7 @@ export default function App() {
                     ))}
                     {scannedItems.length === 0 && (
                       <tr>
-                        <td colSpan={4} className="p-8 text-center text-slate-500 font-medium">Hozircha hech qanday ma'lumot yo'q</td>
+                        <td colSpan={4} className="p-8 text-center text-slate-500 font-medium">Bazada hozircha hech qanday ma'lumot yo'q. Skanerlashni boshlang!</td>
                       </tr>
                     )}
                   </tbody>
