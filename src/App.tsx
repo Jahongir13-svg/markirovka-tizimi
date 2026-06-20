@@ -1,10 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import { Barcode, Server, Settings, Database, RefreshCw, User, ClipboardList, CheckCircle } from 'lucide-react';
 
-// Google Forms integratsiyasi
-const GOOGLE_FORM_SUBMIT_URL = 'https://docs.google.com/forms/d/e/1FAIpQLScQuAM4Fq2vA_RejU6tIEGM7-cxa93TTOkd6vizfiziCY15qQ/formResponse';
-// Ma'lumotlarni o'qish uchun Google Apps Script ssilkasi o'z joyida qoladi
-const GOOGLE_SHEETS_URL = 'https://script.google.com/macros/s/AKfycbwZPl6bzpblC1FI4wUe-80yY6a8AI74Slox1kjAzgg26lfTIr1ywqvJ-rtxhQtOXPkZMw/exec';
+// Google Forms va Sheets manzillari
+const GOOGLE_FORM_URL = 'https://docs.google.com/forms/d/e/1FAIpQLScQuAM4Fq2vA_RejU6tIEGM7-cxa93TTOkd6vizfiziCY15qQ/formResponse';
+const GOOGLE_SHEETS_GET_URL = 'https://script.google.com/macros/s/AKfycbwZPl6bzpblC1FI4wUe-80yY6a8AI74Slox1kjAzgg26lfTIr1ywqvJ-rtxhQtOXPkZMw/exec';
 
 interface ScannedItem {
   id: string;
@@ -20,15 +18,20 @@ function App() {
   const [scannedBy, setScannedBy] = useState('Skaner 1');
   const [items, setItems] = useState<ScannedItem[]>([]);
   const [loading, setLoading] = useState(false);
-  const [statusMessage, setStatusMessage] = useState({ text: '', isError: false });
+  const [message, setMessage] = useState('');
 
-  // Google Sheets'dan ma'lumotlarni har 5 soniyada tortib olish
+  // Kataklarni bloklash (kodlash) rejimi uchun o'zgaruvchilar (Sizning eski funksiyangiz)
+  const [isLocked, setIsLocked] = useState(false);
+  const [password, setPassword] = useState('');
+  const [inputPassword, setInputPassword] = useState('');
+
+  // Google Sheets'dan ma'lumotlarni o'qib olish (Har 5 soniyada)
   const fetchItems = async () => {
     try {
-      const response = await fetch(GOOGLE_SHEETS_URL);
+      const response = await fetch(GOOGLE_SHEETS_GET_URL);
       if (response.ok) {
         const data = await response.json();
-        setItems(data.reverse()); // Eng yangi ma'lumotlar tepada ko'rinishi uchun
+        setItems(data);
       }
     } catch (error) {
       console.error("Ma'lumot olishda xato:", error);
@@ -41,226 +44,182 @@ function App() {
     return () => clearInterval(interval);
   }, []);
 
-  // Ma'lumotni Google Forms orqali xavfsiz yuborish
+  // Ma'lumotni Google Forms orqali blokirovkalarsiz yuborish
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!barcode.trim()) return;
 
     setLoading(true);
-    setStatusMessage({ text: 'Yuborilmoqda...', isError: false });
+    setMessage('Yuborilmoqda...');
 
-    const itemId = Date.now().toString();
-    const currentTimestamp = new Date().toLocaleString('ru-RU');
+    const id = Date.now().toString();
+    const timestamp = new Date().toLocaleString('ru-RU');
 
-    // Google Forms formatidagi ma'lumot tuzilmasi
+    // To'g'rilangan aniq ID kodlar
     const formData = new FormData();
-    formData.append('entry.313014902', itemId);
-    formData.append('entry.1747808269', barcode);
-    formData.append('entry.817346141', category);
-    formData.append('entry.1983056073', scannedBy);
-    formData.append('entry.1472895697', currentTimestamp);
+    formData.append('entry.12103623', id);
+    formData.append('entry.461888778', barcode);
+    formData.append('entry.1267765724', category);
+    formData.append('entry.2037054881', scannedBy);
+    formData.append('entry.1783681359', timestamp);
 
     try {
-      // no-cors rejimi Google Forms xavfsizlik to'sig'idan osongina o'tadi
-      await fetch(GOOGLE_FORM_SUBMIT_URL, {
+      await fetch(GOOGLE_FORM_URL, {
         method: 'POST',
         mode: 'no-cors',
         body: formData
       });
 
-      setStatusMessage({ text: 'Muvaffaqiyatli saqlandi!', isError: false });
+      setMessage('Muvaffaqiyatli saqlandi!');
       setBarcode('');
-      
-      // Mahalliy ro'yxatni darhol yangilash
-      const newItem: ScannedItem = {
-        id: itemId,
-        barcode: barcode,
-        category: category,
-        scannedBy: scannedBy,
-        timestamp: currentTimestamp
-      };
-      setItems(prev => [newItem, ...prev]);
-
-      // 3 soniyadan keyin statush xabarini o'chirish
-      setTimeout(() => setStatusMessage({ text: '', isError: false }), 3000);
+      fetchItems(); // Ro'yxatni yangilash
     } catch (error) {
-      setStatusMessage({ text: 'Tizimda xato yuz berdi. Qayta urining.', isError: true });
+      setMessage('Xatolik yuz berdi, qayta urining.');
     } finally {
       setLoading(false);
+      setTimeout(() => setMessage(''), 3000);
+    }
+  };
+
+  // Kataklarni bloklash funksiyalari (Eski funksiya)
+  const handleLock = () => {
+    if (password.trim() === '') {
+      alert('Iltimos, oldin parol o'rnating!');
+      return;
+    }
+    setIsLocked(true);
+  };
+
+  const handleUnlock = () => {
+    if (inputPassword === password) {
+      setIsLocked(false);
+      setInputPassword('');
+    } else {
+      alert('Parol noto'g'ri!');
     }
   };
 
   return (
-    <div className="min-gradient-bg min-h-screen text-slate-800 font-sans">
-      {/* Header */}
-      <header className="bg-white/80 backdrop-blur-md border-b border-slate-100 sticky top-0 z-50 px-4 py-4 shadow-sm">
-        <div className="max-w-6xl mx-auto flex items-center justify-between">
-          <div className="flex items-center space-x-3">
-            <div className="bg-blue-600 text-white p-2 rounded-xl shadow-md shadow-blue-200">
-              <Barcode className="w-6 h-6" />
-            </div>
-            <div>
-              <h1 className="text-xl font-bold bg-gradient-to-r from-slate-900 to-slate-700 bg-clip-text text-transparent">
-                Markirovka & TSD Tizimi
-              </h1>
-              <p className="text-xs text-slate-400 font-medium">Ombor Logistikasi Terminali</p>
-            </div>
+    <div style={{ padding: '20px', fontFamily: 'sans-serif', maxWidth: '800px', margin: '0 auto' }}>
+      <h2>Markirovka Tizimi (TSD Terminali)</h2>
+      
+      {/* Bloklash / Kodlash paneli */}
+      <div style={{ border: '1px solid #ccc', padding: '15px', borderRadius: '5px', marginBottom: '20px', backgroundColor: '#f9f9f9' }}>
+        <h3>Kataklarni himoyalash (Bloklash)</h3>
+        {!isLocked ? (
+          <div>
+            <input 
+              type="password" 
+              placeholder="Parol o'rnating" 
+              value={password} 
+              onChange={(e) => setPassword(e.target.value)}
+              style={{ padding: '8px', marginRight: '10px' }}
+            />
+            <button onClick={handleLock} style={{ padding: '8px 15px', backgroundColor: '#e0a800', border: 'none', borderRadius: '3px', cursor: 'pointer' }}>
+              Bloklashni yoqish
+            </button>
           </div>
-          <div className="flex items-center space-x-2 bg-emerald-50 text-emerald-700 px-3 py-1.5 rounded-full text-xs font-semibold border border-emerald-100">
-            <span className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse"></span>
-            <span>Google Sheets Bog'langan</span>
+        ) : (
+          <div>
+            <span style={{ color: 'red', fontWeight: 'bold', marginRight: '10px' }}>🔒 Tizim bloklangan!</span>
+            <input 
+              type="password" 
+              placeholder="Ochish uchun parolni kiriting" 
+              value={inputPassword} 
+              onChange={(e) => setInputPassword(e.target.value)}
+              style={{ padding: '8px', marginRight: '10px' }}
+            />
+            <button onClick={handleUnlock} style={{ padding: '8px 15px', backgroundColor: '#218838', color: 'white', border: 'none', borderRadius: '3px', cursor: 'pointer' }}>
+              Blokdan chiqarish
+            </button>
           </div>
-        </div>
-      </header>
+        )}
+      </div>
 
-      <main className="max-w-6xl mx-auto px-4 py-8 grid grid-cols-1 md:grid-cols-3 gap-8">
-        {/* Chap taraf: Skaner paneli */}
-        <div className="md:col-span-1 space-y-6">
-          <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
-            <div className="flex items-center space-x-2 mb-6">
-              <Server className="w-5 h-5 text-blue-600" />
-              <h2 className="text-lg font-bold text-slate-800">TSD Terminali</h2>
-            </div>
-
-            <form onSubmit={handleSubmit} className="space-y-4">
-              <div>
-                <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">
-                  Skanerlovchi Shaxs / Qurilma
-                </label>
-                <div className="relative">
-                  <User className="absolute left-3 top-3 w-5 h-5 text-slate-400" />
-                  <select
-                    value={scannedBy}
-                    onChange={(e) => setScannedBy(e.target.value)}
-                    className="w-full bg-slate-50 border border-slate-200 rounded-xl pl-10 pr-4 py-2.5 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all appearance-none"
-                  >
-                    <option value="Skaner 1">Skaner 1 (Asosiy)</option>
-                    <option value="Skaner 2">Skaner 2 (Zaxira)</option>
-                    <option value="Ombor Mudiri">Ombor Mudiri</option>
-                  </select>
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">
-                  Ishchi Komanda / Kategoriya
-                </label>
-                <div className="relative">
-                  <Settings className="absolute left-3 top-3 w-5 h-5 text-slate-400" />
-                  <select
-                    value={category}
-                    onChange={(e) => setCategory(e.target.value)}
-                    className="w-full bg-slate-50 border border-slate-200 rounded-xl pl-10 pr-4 py-2.5 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all appearance-none"
-                  >
-                    <option value="Komanda A">Komanda A</option>
-                    <option value="Komanda B">Komanda B</option>
-                    <option value="Komanda C">Komanda C</option>
-                  </select>
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">
-                  Shtrix-kodni Kiriting
-                </label>
-                <input
-                  type="text"
-                  value={barcode}
-                  onChange={(e) => setBarcode(e.target.value)}
-                  placeholder="Skanerlang yoki qo'lda yozing..."
-                  autoFocus
-                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm font-semibold tracking-wider placeholder:tracking-normal placeholder:font-normal focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all"
-                />
-              </div>
-
-              <button
-                type="submit"
-                disabled={loading || !barcode.trim()}
-                className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-4 rounded-xl shadow-lg shadow-blue-200 disabled:opacity-50 disabled:shadow-none transition-all flex items-center justify-center space-x-2"
-              >
-                {loading ? (
-                  <RefreshCw className="w-5 h-5 animate-spin" />
-                ) : (
-                  <>
-                    <CheckCircle className="w-5 h-5" />
-                    <span>Ma'lumotni Saqlash</span>
-                  </>
-                )}
-              </button>
-            </form>
-
-            {statusMessage.text && (
-              <div className={`mt-4 p-3 rounded-xl text-center text-xs font-bold border transition-all ${
-                statusMessage.isError 
-                  ? 'bg-rose-50 text-rose-600 border-rose-100' 
-                  : 'bg-emerald-50 text-emerald-700 border-emerald-100'
-              }`}>
-                {statusMessage.text}
-              </div>
-            )}
-          </div>
+      {/* Skanerlash shakli */}
+      <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '15px', marginBottom: '30px' }}>
+        <div>
+          <label style={{ display: 'block', marginBottom: '5px', fontWeight: 'bold' }}>Skanerlovchi:</label>
+          <select 
+            value={scannedBy} 
+            onChange={(e) => setScannedBy(e.target.value)}
+            disabled={isLocked}
+            style={{ padding: '10px', width: '100%', borderRadius: '4px' }}
+          >
+            <option value="Skaner 1">Skaner 1</option>
+            <option value="Skaner 2">Skaner 2</option>
+            <option value="Ombor Mudiri">Ombor Mudiri</option>
+          </select>
         </div>
 
-        {/* O'ng taraf: Jonli Monitor Paneli */}
-        <div className="md:col-span-2">
-          <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 h-full flex flex-col">
-            <div className="flex items-center justify-between mb-6">
-              <div className="flex items-center space-x-2">
-                <Database className="w-5 h-5 text-blue-600" />
-                <h2 className="text-lg font-bold text-slate-800">Jonli Monitor paneli (Live)</h2>
-              </div>
-              <span className="text-xs font-semibold text-slate-400 bg-slate-50 px-2.5 py-1 rounded-md border border-slate-100 flex items-center space-x-1 animate-pulse">
-                <span className="w-1.5 h-1.5 bg-blue-500 rounded-full"></span>
-                <span>Har 5s yangilanadi</span>
-              </span>
-            </div>
-
-            <div className="flex-1 overflow-x-auto">
-              {items.length === 0 ? (
-                <div className="h-48 flex flex-col items-center justify-center text-slate-400 border border-dashed border-slate-200 rounded-xl bg-slate-50/50">
-                  <ClipboardList className="w-8 h-8 mb-2 text-slate-300" />
-                  <p className="text-sm font-medium">Hozircha skanerlangan ma'lumotlar yo'q</p>
-                </div>
-              ) : (
-                <table className="w-full text-left border-collapse">
-                  <thead>
-                    <tr className="border-b border-slate-100">
-                      <th className="pb-3 text-xs font-bold text-slate-400 uppercase tracking-wider">ID</th>
-                      <th className="pb-3 text-xs font-bold text-slate-400 uppercase tracking-wider">Shtrix-kod</th>
-                      <th className="pb-3 text-xs font-bold text-slate-400 uppercase tracking-wider">Kategoriya</th>
-                      <th className="pb-3 text-xs font-bold text-slate-400 uppercase tracking-wider">Skaner</th>
-                      <th className="pb-3 text-xs font-bold text-slate-400 uppercase tracking-wider">Vaqti</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-50">
-                    {items.map((item, index) => (
-                      <tr key={item.id || index} className="hover:bg-slate-50/50 transition-colors group">
-                        <td className="py-3 text-xs font-mono text-slate-400">
-                          {item.id ? `${item.id.slice(-5)}...` : '-'}
-                        </td>
-                        <td className="py-3 text-sm font-bold text-slate-700 tracking-wider">
-                          {item.barcode}
-                        </td>
-                        <td className="py-3">
-                          <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-50 text-blue-700 border border-blue-100">
-                            {item.category}
-                          </span>
-                        </td>
-                        <td className="py-3 text-xs font-semibold text-slate-500">
-                          {item.scannedBy}
-                        </td>
-                        <td className="py-3 text-xs text-slate-400 font-medium">
-                          {item.timestamp}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              )}
-            </div>
-          </div>
+        <div>
+          <label style={{ display: 'block', marginBottom: '5px', fontWeight: 'bold' }}>Kategoriya:</label>
+          <select 
+            value={category} 
+            onChange={(e) => setCategory(e.target.value)}
+            disabled={isLocked}
+            style={{ padding: '10px', width: '100%', borderRadius: '4px' }}
+          >
+            <option value="Komanda A">Komanda A</option>
+            <option value="Komanda B">Komanda B</option>
+            <option value="Komanda C">Komanda C</option>
+          </select>
         </div>
-      </main>
+
+        <div>
+          <label style={{ display: 'block', marginBottom: '5px', fontWeight: 'bold' }}>Shtrix-kod:</label>
+          <input 
+            type="text" 
+            value={barcode} 
+            onChange={(e) => setBarcode(e.target.value)}
+            placeholder="Shtrix-kodni skanerlang..."
+            disabled={isLocked}
+            autoFocus
+            style={{ padding: '12px', width: '100%', boxSizing: 'border-box', fontSize: '16px', borderRadius: '4px', border: '1px solid #ccc' }}
+          />
+        </div>
+
+        <button 
+          type="submit" 
+          disabled={loading || isLocked || !barcode.trim()}
+          style={{ padding: '12px', backgroundColor: '#007bff', color: 'white', border: 'none', borderRadius: '4px', fontSize: '16px', cursor: 'pointer' }}
+        >
+          {loading ? 'Saqlanmoqda...' : 'Ma'lumotni saqlash'}
+        </button>
+      </form>
+
+      {message && <div style={{ padding: '10px', backgroundColor: '#e2f0d9', color: '#385723', textAlign: 'center', marginBottom: '20px', borderRadius: '4px', fontWeight: 'bold' }}>{message}</div>}
+
+      {/* Monitoring jadvali */}
+      <h3>Skanerlangan ma'lumotlar monitoringi:</h3>
+      <table style={{ width: '100%', borderCollapse: 'collapse', marginTop: '10px' }}>
+        <thead>
+          <tr style={{ backgroundColor: '#f2f2f2', textAlign: 'left' }}>
+            <th style={{ border: '1px solid #ddd', padding: '8px' }}>ID</th>
+            <th style={{ border: '1px solid #ddd', padding: '8px' }}>Shtrix-kod</th>
+            <th style={{ border: '1px solid #ddd', padding: '8px' }}>Kategoriya</th>
+            <th style={{ border: '1px solid #ddd', padding: '8px' }}>Skaner</th>
+            <th style={{ border: '1px solid #ddd', padding: '8px' }}>Vaqti</th>
+          </tr>
+        </thead>
+        <tbody>
+          {items.length === 0 ? (
+            <tr>
+              <td colSpan={5} style={{ textAlign: 'center', padding: '10px', color: '#777' }}>Hozircha ma'lumot yo'q</td>
+            </tr>
+          ) : (
+            items.slice().reverse().map((item, index) => (
+              <tr key={index}>
+                <td style={{ border: '1px solid #ddd', padding: '8px' }}>{item.id}</td>
+                <td style={{ border: '1px solid #ddd', padding: '8px', fontWeight: 'bold' }}>{item.barcode}</td>
+                <td style={{ border: '1px solid #ddd', padding: '8px' }}>{item.category}</td>
+                <td style={{ border: '1px solid #ddd', padding: '8px' }}>{item.scannedBy}</td>
+                <td style={{ border: '1px solid #ddd', padding: '8px' }}>{item.timestamp}</td>
+              </tr>
+            ))
+          )}
+        </tbody>
+      </table>
     </div>
   );
 }
