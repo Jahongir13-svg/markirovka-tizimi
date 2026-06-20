@@ -1,8 +1,7 @@
 import React, { useState, useEffect } from 'react';
 
-// Google Forms va Sheets manzillari
-const GOOGLE_FORM_URL = 'https://docs.google.com/forms/d/e/1FAIpQLScQuAM4Fq2vA_RejU6tIEGM7-cxa93TTOkd6vizfiziCY15qQ/formResponse';
-const GOOGLE_SHEETS_GET_URL = 'https://script.google.com/macros/s/AKfycbwZPl6bzpblC1FI4wUe-80yY6a8AI74Slox1kjAzgg26lfTIr1ywqvJ-rtxhQtOXPkZMw/exec';
+// Faqatgina bitta toza Google Sheets Web App manzili (Forms-siz)
+const GOOGLE_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbwZPl6bzpblC1FI4wUe-80yY6a8AI74Slox1kjAzgg26lfTIr1ywqvJ-rtxhQtOXPkZMw/exec';
 
 interface ScannedItem {
   id: string;
@@ -20,15 +19,15 @@ function App() {
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState('');
 
-  // Kataklarni bloklash (kodlash) rejimi uchun o'zgaruvchilar
+  // Bloklash / Kodlash funksiyasi
   const [isLocked, setIsLocked] = useState(false);
   const [password, setPassword] = useState('');
   const [inputPassword, setInputPassword] = useState('');
 
-  // Google Sheets'dan ma'lumotlarni o'qib olish (Har 5 soniyada)
+  // Bazadan ma'lumotlarni o'qib olish
   const fetchItems = async () => {
     try {
-      const response = await fetch(GOOGLE_SHEETS_GET_URL);
+      const response = await fetch(GOOGLE_SCRIPT_URL);
       if (response.ok) {
         const data = await response.json();
         setItems(data);
@@ -44,7 +43,7 @@ function App() {
     return () => clearInterval(interval);
   }, []);
 
-  // Ma'lumotni Google Forms'ga yuborish
+  // Ma'lumotni to'g'ridan-to'g'ri bazaga yozish (Eski, eng toza usul)
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!barcode.trim()) return;
@@ -52,26 +51,25 @@ function App() {
     setLoading(true);
     setMessage('Yuborilmoqda...');
 
-    const id = Date.now().toString();
-    const timestamp = new Date().toLocaleString('ru-RU');
-
-    const formData = new FormData();
-    formData.append('entry.12103623', id);          // id
-    formData.append('entry.461888778', barcode);     // barcode
-    formData.append('entry.1267765724', category);   // category
-    formData.append('entry.2037054881', scannedBy);  // scannedBy
-    formData.append('entry.1783681359', timestamp);  // timestamp
+    const newItem = {
+      id: Date.now().toString(),
+      barcode: barcode,
+      category: category,
+      scannedBy: scannedBy,
+      timestamp: new Date().toLocaleString('ru-RU')
+    };
 
     try {
-      await fetch(GOOGLE_FORM_URL, {
+      await fetch(GOOGLE_SCRIPT_URL, {
         method: 'POST',
         mode: 'no-cors',
-        body: formData
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(newItem)
       });
 
       setMessage('Muvaffaqiyatli saqlandi!');
       setBarcode('');
-      fetchItems(); 
+      fetchItems();
     } catch (error) {
       setMessage('Xatolik yuz berdi, qayta urining.');
     } finally {
@@ -98,10 +96,10 @@ function App() {
   };
 
   return (
-    <div style={{ padding: '20px', fontFamily: 'sans-serif', maxWidth: '800px', margin: '0 auto' }}>
-      <h2>Markirovka Tizimi (TSD Terminali)</h2>
+    <div style={{ padding: '20px', fontFamily: 'sans-serif', maxWidth: '800px', margin: '0 auto', backgroundColor: '#ffffff', minHeight: '100vh' }}>
+      <h2 style={{ color: '#333' }}>Markirovka Tizimi (TSD Terminali)</h2>
       
-      {/* Bloklash / Kodlash paneli */}
+      {/* Bloklash paneli */}
       <div style={{ border: '1px solid #ccc', padding: '15px', borderRadius: '5px', marginBottom: '20px', backgroundColor: '#f9f9f9' }}>
         <h3>Kataklarni himoyalash (Bloklash)</h3>
         {!isLocked ? (
@@ -111,9 +109,9 @@ function App() {
               placeholder="Parol o'rnating" 
               value={password} 
               onChange={(e) => setPassword(e.target.value)}
-              style={{ padding: '8px', marginRight: '10px' }}
+              style={{ padding: '8px', marginRight: '10px', borderRadius: '4px', border: '1px solid #ccc' }}
             />
-            <button onClick={handleLock} style={{ padding: '8px 15px', backgroundColor: '#e0a800', border: 'none', borderRadius: '3px', cursor: 'pointer' }}>
+            <button onClick={handleLock} style={{ padding: '8px 15px', backgroundColor: '#e0a800', color: '#fff', border: 'none', borderRadius: '3px', cursor: 'pointer' }}>
               Bloklashni yoqish
             </button>
           </div>
@@ -125,7 +123,7 @@ function App() {
               placeholder="Ochish uchun parolni kiriting" 
               value={inputPassword} 
               onChange={(e) => setInputPassword(e.target.value)}
-              style={{ padding: '8px', marginRight: '10px' }}
+              style={{ padding: '8px', marginRight: '10px', borderRadius: '4px', border: '1px solid #ccc' }}
             />
             <button onClick={handleUnlock} style={{ padding: '8px 15px', backgroundColor: '#218838', color: 'white', border: 'none', borderRadius: '3px', cursor: 'pointer' }}>
               Blokdan chiqarish
@@ -142,7 +140,7 @@ function App() {
             value={scannedBy} 
             onChange={(e) => setScannedBy(e.target.value)}
             disabled={isLocked}
-            style={{ padding: '10px', width: '100%', borderRadius: '4px' }}
+            style={{ padding: '10px', width: '100%', borderRadius: '4px', border: '1px solid #ccc' }}
           >
             <option value="Skaner 1">Skaner 1</option>
             <option value="Skaner 2">Skaner 2</option>
@@ -156,7 +154,7 @@ function App() {
             value={category} 
             onChange={(e) => setCategory(e.target.value)}
             disabled={isLocked}
-            style={{ padding: '10px', width: '100%', borderRadius: '4px' }}
+            style={{ padding: '10px', width: '100%', borderRadius: '4px', border: '1px solid #ccc' }}
           >
             <option value="Komanda A">Komanda A</option>
             <option value="Komanda B">Komanda B</option>
@@ -190,9 +188,9 @@ function App() {
 
       {/* Monitoring jadvali */}
       <h3>Skanerlangan ma'lumotlar monitoringi:</h3>
-      <table style={{ width: '100%', borderCollapse: 'collapse', marginTop: '10px' }}>
+      <table style={{ width: '100%', borderCollapse: 'collapse', marginTop: '10px', backgroundColor: '#fff' }}>
         <thead>
-          <tr style={{ backgroundColor: '#f2f2f2', textAlign: 'left' }}>
+          <tr style={{ backgroundColor: '#f2f2f2', textAlign: 'left', color: '#333' }}>
             <th style={{ border: '1px solid #ddd', padding: '8px' }}>ID</th>
             <th style={{ border: '1px solid #ddd', padding: '8px' }}>Shtrix-kod</th>
             <th style={{ border: '1px solid #ddd', padding: '8px' }}>Kategoriya</th>
@@ -207,7 +205,7 @@ function App() {
             </tr>
           ) : (
             items.slice().reverse().map((item, index) => (
-              <tr key={index}>
+              <tr key={index} style={{ color: '#333' }}>
                 <td style={{ border: '1px solid #ddd', padding: '8px' }}>{item.id}</td>
                 <td style={{ border: '1px solid #ddd', padding: '8px', fontWeight: 'bold' }}>{item.barcode}</td>
                 <td style={{ border: '1px solid #ddd', padding: '8px' }}>{item.category}</td>
