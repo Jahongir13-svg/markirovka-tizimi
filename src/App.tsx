@@ -44,7 +44,7 @@ function App() {
     return () => clearInterval(interval);
   }, []);
 
-  // Ma'lumotni Google Forms'ga Google ssilkasidagi aniq tartibda yuborish
+  // Ma'lumotni Google Forms'ga yuborish
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!barcode.trim()) return;
@@ -55,7 +55,6 @@ function App() {
     const id = Date.now().toString();
     const timestamp = new Date().toLocaleString('ru-RU');
 
-    // Ssilkangizdan olingan TUGAL va ANIQ moslik:
     const formData = new FormData();
     formData.append('entry.12103623', id);          // id
     formData.append('entry.461888778', barcode);     // barcode
@@ -72,7 +71,7 @@ function App() {
 
       setMessage('Muvaffaqiyatli saqlandi!');
       setBarcode('');
-      fetchItems(); // Ekrandagi ro'yxatni darhol yangilashga so'rov yuborish
+      fetchItems(); 
     } catch (error) {
       setMessage('Xatolik yuz berdi, qayta urining.');
     } finally {
@@ -83,7 +82,7 @@ function App() {
 
   const handleLock = () => {
     if (password.trim() === '') {
-      alert('Iltimos, oldin parol o\'rnating!');
+      alert("Iltimos, oldin parol o'rnating!");
       return;
     }
     setIsLocked(true);
@@ -94,7 +93,7 @@ function App() {
       setIsLocked(false);
       setInputPassword('');
     } else {
-      alert('Parol noto\'g\'ri!');
+      alert("Parol noto'g'ri!");
     }
   };
 
@@ -183,7 +182,7 @@ function App() {
           disabled={loading || isLocked || !barcode.trim()}
           style={{ padding: '12px', backgroundColor: '#007bff', color: 'white', border: 'none', borderRadius: '4px', fontSize: '16px', cursor: 'pointer' }}
         >
-          {loading ? 'Saqlanmoqda...' : 'Ma'lumotni saqlash'}
+          {loading ? 'Saqlanmoqda...' : 'Ma\'lumotni saqlash'}
         </button>
       </form>
 
