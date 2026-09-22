@@ -4,8 +4,8 @@ import { createClient } from "@supabase/supabase-js";
 
 // ─── SUPABASE CLIENT CONFIGURATION ───────────────────────────────────────────
 // O'zingizning Supabase loyihangizdagi URL va ANON_KEY kalitlarini qo'ying
-const SUPABASE_URL = "YOUR_SUPABASE_URL";
-const SUPABASE_ANON_KEY = "YOUR_SUPABASE_ANON_KEY";
+const SUPABASE_URL = "https://wyjijbbmhapxxmndvmyf.supabase.co/rest/v1/";
+const SUPABASE_ANON_KEY = "sb_publishable_TmnKTVwKq3cJkg_bQV1nTg_x7C9VSuo";
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
